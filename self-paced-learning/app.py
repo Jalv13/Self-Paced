@@ -15,10 +15,10 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from utils.data_loader import DataLoader
 
-#  Load Environment Variables 
+#  Load Environment Variables
 load_dotenv()
 
-#  App Configuration 
+#  App Configuration
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_KEY")
 if not app.secret_key:
@@ -29,12 +29,12 @@ if not app.secret_key:
         "your_default_secret_key_for_development_12345_v2"  # Fallback for local dev
     )
 
-#  OpenAI Client Initialization 
-# Ensure OPEN_API_KEY is set in your .env file
+#  OpenAI Client Initialization
+# Ensure OPENAI_API_KEY is set in your .env file
 try:
-    api_key = os.getenv("OPEN_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise ValueError("OPEN_API_KEY not found in environment variables.")
+        raise ValueError("OPENAI_API_KEY not found in environment variables.")
     # Simple initialization without extra parameters
     client = OpenAI(api_key=api_key)
     # Test the client
@@ -43,40 +43,46 @@ except Exception as e:
     app.logger.error(f"Failed to initialize OpenAI client: {e}")
     client = None  # Allow app to run but AI features will fail if client is None
 
-#  Constants and Global Settings 
+#  Constants and Global Settings
 MASTERY_THRESHOLD = 0.80  # 80% score to consider targeted weak topics mastered
 
-#  Initialize DataLoader 
+#  Initialize DataLoader
 DATA_ROOT_PATH = os.path.join(os.path.dirname(__file__), "data")
 data_loader = DataLoader(DATA_ROOT_PATH)
 
 
-#  Helper Functions 
+#  Helper Functions
 def get_session_key(subject: str, subtopic: str, key_type: str) -> str:
     """Generate session key with subject/subtopic prefix."""
     return f"{subject}_{subtopic}_{key_type}"
+
 
 def get_subject_keywords(subject: str) -> list:
     """Get allowed AI analysis keywords for a subject."""
     return data_loader.get_subject_keywords(subject)
 
+
 def get_quiz_data(subject: str, subtopic: str) -> list:
     """Get quiz questions for a subject/subtopic."""
     return data_loader.get_quiz_questions(subject, subtopic)
 
+
 def get_question_pool(subject: str, subtopic: str) -> list:
     """Get question pool for remedial quizzes."""
     return data_loader.get_question_pool_questions(subject, subtopic)
+
 
 def get_lesson_plans(subject: str, subtopic: str) -> dict:
     """Get lesson plans for a subject/subtopic."""
     lessons_data = data_loader.load_lesson_plans(subject, subtopic)
     return lessons_data.get("lessons", {}) if lessons_data else {}
 
+
 def get_video_data(subject: str, subtopic: str) -> dict:
     """Get video data for a subject/subtopic."""
     videos_data = data_loader.load_videos(subject, subtopic)
     return videos_data.get("videos", {}) if videos_data else {}
+
 
 def format_quiz_bank_for_ai_prompt(quiz_bank, title="Reference Quiz Bank"):
     """Formats a quiz bank (like FUNCTIONS_QUIZ) into a string for AI prompts."""
@@ -109,25 +115,48 @@ def parse_ai_json_from_text(ai_response_string, expected_type_is_list=True):
         app.logger.warning("AI response string is empty in parse_ai_json_from_text.")
         return None
 
-    # Pattern to extract JSON from ```json ... ``` or raw {...} / [...]
+    # First try to find JSON in markdown code blocks
     if expected_type_is_list:
-        pattern = r"```json\s*(\[[\s\S]*?\])\s*```|(\[[\s\S]*?\](?!\s*:))"
+        patterns = [
+            r"```json\s*(\[[\s\S]*?\])\s*```",  # JSON in markdown blocks
+            r"(\[[\s\S]*?\])(?!\s*:)",  # Raw array
+        ]
     else:  # expecting an object
-        pattern = r"```json\s*(\{[\s\S]*?\})\s*```|(\{[\s\S]*?\}(?!\s*:))"
-
-    match = re.search(pattern, ai_response_string, re.DOTALL)
+        patterns = [
+            r"```json\s*(\{[\s\S]*?\})\s*```",  # JSON in markdown blocks
+            r"(\{[\s\S]*?\})(?!\s*[,:])",  # Raw object, not followed by comma or colon
+        ]
 
     json_str = None
-    if match:
-        # Try groups in order of preference (group 1 for markdown, group 2 for raw)
-        for group_content in match.groups():
-            if group_content:
-                json_str = group_content
-                break
+    for pattern in patterns:
+        match = re.search(pattern, ai_response_string, re.DOTALL)
+        if match:
+            json_str = match.group(1)
+            break
+
+    # If no match found, try a more lenient approach for objects
+    if not json_str and not expected_type_is_list:
+        # Look for the outermost braces
+        brace_count = 0
+        start_idx = -1
+        for i, char in enumerate(ai_response_string):
+            if char == '{':
+                if brace_count == 0:
+                    start_idx = i
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0 and start_idx != -1:
+                    json_str = ai_response_string[start_idx:i+1]
+                    break
 
     if json_str:
         try:
             json_str_cleaned = json_str.strip()
+            
+            # Additional cleaning: remove trailing commas before closing braces/brackets
+            json_str_cleaned = re.sub(r',(\s*[}\]])', r'\1', json_str_cleaned)
+            
             parsed_json = json.loads(json_str_cleaned)
 
             if expected_type_is_list and not isinstance(parsed_json, list):
@@ -190,8 +219,7 @@ def call_openai_api(
         return None
 
 
-
-#  Main Application Routes 
+#  Main Application Routes
 @app.route("/")
 def subject_selection():
     """New home page showing all available subjects."""
@@ -199,7 +227,7 @@ def subject_selection():
         # Load subjects from subjects.json
         subjects_path = os.path.join(DATA_ROOT_PATH, "subjects.json")
         if os.path.exists(subjects_path):
-            with open(subjects_path, 'r', encoding='utf-8') as f:
+            with open(subjects_path, "r", encoding="utf-8") as f:
                 subjects_data = json.load(f)
                 subjects = subjects_data.get("subjects", {})
         else:
@@ -211,15 +239,16 @@ def subject_selection():
                     "icon": "fab fa-python",
                     "color": "#3776ab",
                     "status": "active",
-                    "subtopic_count": 6
+                    "subtopic_count": 6,
                 }
             }
-        
+
         return render_template("subject_selection.html", subjects=subjects)
     except Exception as e:
         app.logger.error(f"Error loading subject selection: {e}")
         # Fallback to legacy index if there's an error
-        return redirect(url_for('python_subject_page'))
+        return redirect(url_for("python_subject_page"))
+
 
 @app.route("/subjects/<subject>")
 def subject_page(subject):
@@ -229,31 +258,37 @@ def subject_page(subject):
         subject_config = data_loader.load_subject_config(subject)
         if not subject_config:
             app.logger.error(f"Subject config not found for: {subject}")
-            return redirect(url_for('subject_selection'))
-        
+            return redirect(url_for("subject_selection"))
+
         subject_info = subject_config.get("subject_info", {})
         subtopics = subject_config.get("subtopics", {})
-        
+
         # Sort subtopics by order
-        sorted_subtopics = dict(sorted(subtopics.items(), key=lambda x: x[1].get('order', 999)))
-        
-        return render_template("python_subject.html", 
-                             subject=subject,
-                             subject_info=subject_info, 
-                             subtopics=sorted_subtopics)
+        sorted_subtopics = dict(
+            sorted(subtopics.items(), key=lambda x: x[1].get("order", 999))
+        )
+
+        return render_template(
+            "python_subject.html",
+            subject=subject,
+            subject_info=subject_info,
+            subtopics=sorted_subtopics,
+        )
     except Exception as e:
         app.logger.error(f"Error loading subject page for {subject}: {e}")
-        return redirect(url_for('subject_selection'))
+        return redirect(url_for("subject_selection"))
+
 
 @app.route("/legacy")
 def legacy_index():
     """Legacy route - redirects to Python subject page."""
-    return redirect(url_for('subject_page', subject='python'))
+    return redirect(url_for("subject_page", subject="python"))
 
-@app.route("/python")  
+
+@app.route("/python")
 def python_subject_page():
     """Direct route to Python subject - for backward compatibility."""
-    return redirect(url_for('subject_page', subject='python'))
+    return redirect(url_for("subject_page", subject="python"))
 
 
 @app.route("/api/video/<topic_key>")
@@ -330,67 +365,89 @@ def quiz_page(subject, subtopic):
     # Validate that the subject/subtopic exists
     if not data_loader.validate_subject_subtopic(subject, subtopic):
         return f"Error: Subject '{subject}' with subtopic '{subtopic}' not found.", 404
-    
+
     # Clear previous session data for this subject/subtopic
     session_prefix = f"{subject}_{subtopic}"
     keys_to_remove = [key for key in session.keys() if key.startswith(session_prefix)]
     for key in keys_to_remove:
         session.pop(key, None)
-    
+
     # Load quiz data
     quiz_questions = get_quiz_data(subject, subtopic)
     quiz_title = data_loader.get_quiz_title(subject, subtopic)
-    
+
     if not quiz_questions:
         return f"Error: No quiz questions found for {subject}/{subtopic}.", 404
-    
+
     # Set session data with prefixed keys
     session[get_session_key(subject, subtopic, "current_quiz_type")] = "initial"
-    session[get_session_key(subject, subtopic, "questions_served_for_analysis")] = quiz_questions
+    session[get_session_key(subject, subtopic, "questions_served_for_analysis")] = (
+        quiz_questions
+    )
     session["current_subject"] = subject
     session["current_subtopic"] = subtopic
-    
-    return render_template(
-        "quiz.html", questions=quiz_questions, quiz_title=quiz_title
-    )
+
+    return render_template("quiz.html", questions=quiz_questions, quiz_title=quiz_title)
+
 
 # Legacy route for backward compatibility
 @app.route("/quiz/functions")
 def quiz_functions_page():
     """Legacy route - redirects to the new structure."""
-    return redirect(url_for('quiz_page', subject='python', subtopic='functions'))
+    return redirect(url_for("quiz_page", subject="python", subtopic="functions"))
+
+
 @app.route("/analyze", methods=["POST"])
 def analyze_quiz():
     user_submitted_answers = request.json.get("answers", {})
-    
+
     # Get current subject/subtopic from session
     current_subject = session.get("current_subject")
     current_subtopic = session.get("current_subtopic")
-    
+
     if not current_subject or not current_subtopic:
         app.logger.error("No current subject/subtopic found in session for analysis.")
-        return jsonify({"feedback": "Error: Quiz session data not found.", "weak_topics": []}), 400
-    
+        return (
+            jsonify(
+                {"feedback": "Error: Quiz session data not found.", "weak_topics": []}
+            ),
+            400,
+        )
+
     # Get questions that were served for analysis using prefixed session key
-    questions_for_analysis = session.get(get_session_key(current_subject, current_subtopic, "questions_served_for_analysis"), [])
+    questions_for_analysis = session.get(
+        get_session_key(
+            current_subject, current_subtopic, "questions_served_for_analysis"
+        ),
+        [],
+    )
 
     if not questions_for_analysis:
         app.logger.error("No questions found in session for analysis.")
-        return jsonify({"feedback": "Error: Quiz session data not found.", "weak_topics": []}), 400
+        return (
+            jsonify(
+                {"feedback": "Error: Quiz session data not found.", "weak_topics": []}
+            ),
+            400,
+        )
 
     submission_details_list = []
     correct_answers = 0
     total_questions = len(questions_for_analysis)
-    
+
     for i, q_data in enumerate(questions_for_analysis):
         user_answer = user_submitted_answers.get(f"q{i}", "[No answer provided]")
-        question_type = q_data.get("type", "multiple_choice")  # Default to multiple_choice for backward compatibility
+        question_type = q_data.get(
+            "type", "multiple_choice"
+        )  # Default to multiple_choice for backward compatibility
         status = "Incorrect"  # Default status
 
-        detail = f"Question {i+1} (Type: {question_type}): {q_data.get('question', 'N/A')}\n"
+        detail = (
+            f"Question {i+1} (Type: {question_type}): {q_data.get('question', 'N/A')}\n"
+        )
         detail += f"Student's Answer:\n---\n{user_answer}\n---\n"
 
-        #  Grading Logic 
+        #  Grading Logic
         if question_type == "multiple_choice":
             correct_answer_index = q_data.get("answer_index")
             options = q_data.get("options", [])
@@ -408,7 +465,9 @@ def analyze_quiz():
             correct_answer_text = q_data.get("correct_answer", "")
             # Make comparison case-insensitive and trim whitespace
             # Allow for multiple correct answers separated by commas
-            correct_answers_list = [ans.strip().lower() for ans in correct_answer_text.split(",")]
+            correct_answers_list = [
+                ans.strip().lower() for ans in correct_answer_text.split(",")
+            ]
             user_answer_clean = user_answer.strip().lower()
             if user_answer_clean in correct_answers_list:
                 status = "Correct"
@@ -421,10 +480,10 @@ def analyze_quiz():
             # We will let the AI review the code.
             status = "For AI Review"
             # Provide the sample solution for the AI's reference.
-            sample_solution = q_data.get('sample_solution', '')
+            sample_solution = q_data.get("sample_solution", "")
             if sample_solution:
                 detail += f"Sample Solution:\n---\n{sample_solution}\n---\n"
-        
+
         detail += f"Status: {status}\n\n"
         submission_details_list.append(detail)
 
@@ -436,11 +495,11 @@ def analyze_quiz():
         "classify their errors against a predefined list of topics, and evaluate their submitted code. "
         "For 'coding' questions, determine if the student's code correctly solves the problem."
     )
-    
+
     # Get allowed keywords for the current subject
     allowed_topic_keywords = get_subject_keywords(current_subject)
     allowed_keywords_str = json.dumps(allowed_topic_keywords)
-    
+
     prompt = (
         "You are analyzing a student's quiz submission which includes multiple choice, fill-in-the-blank, and coding questions.\n"
         "Based on the incorrect answers and their submitted code, identify the concepts they are weak in.\n"
@@ -463,49 +522,93 @@ def analyze_quiz():
         prompt,
         system_message,
         model="gpt-4",
-        max_tokens=1500, # Increased tokens for more detailed feedback
-        expect_json_output=True
+        max_tokens=1500,  # Increased tokens for more detailed feedback
+        expect_json_output=True,
     )
 
     if not ai_response_content:
-        return jsonify({"feedback": "Error: Could not get analysis from AI.", "weak_topics": []}), 500
+        return (
+            jsonify(
+                {
+                    "feedback": "Error: Could not get analysis from AI.",
+                    "weak_topics": [],
+                }
+            ),
+            500,
+        )
 
-    json_match = re.search(r'\{[\s\S]*\}', ai_response_content)
-    if not json_match:
-        app.logger.error(f"Could not find JSON in AI response.\nResponse was: {ai_response_content}")
-        return jsonify({"feedback": "Error: The analysis response did not contain a valid JSON object.", "weak_topics": []}), 500
+    # Use the more robust JSON parsing function
+    parsed_ai_response = parse_ai_json_from_text(ai_response_content, expected_type_is_list=False)
+    
+    if not parsed_ai_response:
+        app.logger.error(
+            f"Could not parse JSON from AI response.\nResponse was: {ai_response_content}"
+        )
+        return (
+            jsonify(
+                {
+                    "feedback": "Error: The analysis response did not contain a valid JSON object.",
+                    "weak_topics": [],
+                }
+            ),
+            500,
+        )
 
     try:
-        parsed_ai_response = json.loads(json_match.group(0))
-        feedback = parsed_ai_response.get("detailed_feedback", "No detailed feedback provided.")
+        feedback = parsed_ai_response.get(
+            "detailed_feedback", "No detailed feedback provided."
+        )
         weak_topics = parsed_ai_response.get("weak_concept_tags", [])
-        validated_weak_topics = [topic for topic in weak_topics if topic in allowed_topic_keywords]
-        
+        validated_weak_topics = [
+            topic for topic in weak_topics if topic in allowed_topic_keywords
+        ]
+
         # Store weak topics with subject/subtopic prefix
-        session[get_session_key(current_subject, current_subtopic, "weak_topics")] = validated_weak_topics
-        app.logger.info(f"AI identified weak topics for {current_subject}/{current_subtopic}: {validated_weak_topics}")
+        session[get_session_key(current_subject, current_subtopic, "weak_topics")] = (
+            validated_weak_topics
+        )
+        app.logger.info(
+            f"AI identified weak topics for {current_subject}/{current_subtopic}: {validated_weak_topics}"
+        )
 
         # Calculate score percentage
-        score_percentage = round((correct_answers / total_questions) * 100) if total_questions > 0 else 0
+        score_percentage = (
+            round((correct_answers / total_questions) * 100)
+            if total_questions > 0
+            else 0
+        )
 
-        return jsonify({
-            "feedback": feedback,
-            "weak_topics": validated_weak_topics,
-            "score": {
-                "correct": correct_answers,
-                "total": total_questions,
-                "percentage": score_percentage
+        return jsonify(
+            {
+                "feedback": feedback,
+                "weak_topics": validated_weak_topics,
+                "score": {
+                    "correct": correct_answers,
+                    "total": total_questions,
+                    "percentage": score_percentage,
+                },
             }
-        })
+        )
 
-    except json.JSONDecodeError as e:
-        app.logger.error(f"Failed to parse extracted AI JSON response: {e}\nExtracted text was: {json_match.group(0)}")
-        return jsonify({"feedback": "Error: The analysis response format was invalid.", "weak_topics": []}), 500
+    except Exception as e:
+        app.logger.error(
+            f"Error processing AI analysis response: {e}\nParsed response was: {parsed_ai_response}"
+        )
+        return (
+            jsonify(
+                {
+                    "feedback": "Error: Failed to process the analysis response.",
+                    "weak_topics": [],
+                }
+            ),
+            500,
+        )
+
 
 @app.route("/api/recommend_videos", methods=["GET"])
 def recommend_videos_api():
     weak_topics_str = request.args.get("topics", "")
-    
+
     if not weak_topics_str:
         return (
             jsonify({"error": "No weak topics provided for video recommendation"}),
@@ -611,12 +714,18 @@ def recommend_videos_api():
                     )
                 )
             )
-            
+
             # Get current subject/subtopic from session for storage key
             current_subject = session.get("current_subject", "python")
             current_subtopic = session.get("current_subtopic", "functions")
-            session[get_session_key(current_subject, current_subtopic, "recommended_videos_for_weak_topics")] = valid_recommended_keys
-            
+            session[
+                get_session_key(
+                    current_subject,
+                    current_subtopic,
+                    "recommended_videos_for_weak_topics",
+                )
+            ] = valid_recommended_keys
+
             return jsonify({"recommended_video_keys": valid_recommended_keys})
         else:
             app.logger.error(
@@ -626,8 +735,12 @@ def recommend_videos_api():
     # Store empty result with prefix
     current_subject = session.get("current_subject", "python")
     current_subtopic = session.get("current_subtopic", "functions")
-    session[get_session_key(current_subject, current_subtopic, "recommended_videos_for_weak_topics")] = []
-    
+    session[
+        get_session_key(
+            current_subject, current_subtopic, "recommended_videos_for_weak_topics"
+        )
+    ] = []
+
     return (
         jsonify(
             {
@@ -638,6 +751,7 @@ def recommend_videos_api():
         500,
     )
 
+
 @app.route("/generate_remedial_quiz", methods=["GET"])
 def generate_remedial_quiz():
     """
@@ -647,18 +761,28 @@ def generate_remedial_quiz():
     # Get current subject/subtopic from session
     current_subject = session.get("current_subject")
     current_subtopic = session.get("current_subtopic")
-    
+
     if not current_subject or not current_subtopic:
-        app.logger.error("No current subject/subtopic found in session for remedial quiz generation.")
-        session["quiz_generation_error"] = "Session error: Please take the main quiz first."
+        app.logger.error(
+            "No current subject/subtopic found in session for remedial quiz generation."
+        )
+        session["quiz_generation_error"] = (
+            "Session error: Please take the main quiz first."
+        )
         return redirect(url_for("show_results_page"))
-    
+
     # Get weak topics with subject/subtopic prefix
-    weak_topics = session.get(get_session_key(current_subject, current_subtopic, "weak_topics"), [])
-    
+    weak_topics = session.get(
+        get_session_key(current_subject, current_subtopic, "weak_topics"), []
+    )
+
     if not weak_topics:
-        app.logger.info(f"No weak topics in session for {current_subject}/{current_subtopic}; cannot generate remedial quiz.")
-        session["quiz_generation_error"] = "You've mastered all identified topics! No remedial quiz needed."
+        app.logger.info(
+            f"No weak topics in session for {current_subject}/{current_subtopic}; cannot generate remedial quiz."
+        )
+        session["quiz_generation_error"] = (
+            "You've mastered all identified topics! No remedial quiz needed."
+        )
         return redirect(url_for("show_results_page"))
 
     # Get question pool for current subject/subtopic
@@ -666,31 +790,53 @@ def generate_remedial_quiz():
 
     # Select questions from the pool that match the weak topics
     remedial_questions = []
-    selected_questions_set = set() # To avoid duplicate questions
+    selected_questions_set = set()  # To avoid duplicate questions
 
-    app.logger.info(f"Filtering question pool for weak topics in {current_subject}/{current_subtopic}: {weak_topics}")
+    app.logger.info(
+        f"Filtering question pool for weak topics in {current_subject}/{current_subtopic}: {weak_topics}"
+    )
 
     for question in question_pool:
         # Check if any of the question's tags are in the user's weak topics
         question_tags = set(question.get("tags", []))
         if not question_tags.isdisjoint(weak_topics):
             # Use the question's text as a unique identifier to avoid duplicates
-            if question['question'] not in selected_questions_set:
+            if question["question"] not in selected_questions_set:
                 remedial_questions.append(question)
-                selected_questions_set.add(question['question'])
+                selected_questions_set.add(question["question"])
 
     if not remedial_questions:
-        app.logger.warning(f"No questions found in question pool for topics: {weak_topics} in {current_subject}/{current_subtopic}")
-        session["quiz_generation_error"] = "We couldn't find specific follow-up questions for your weak topics. Please review the materials and try the main quiz again."
+        app.logger.warning(
+            f"No questions found in question pool for topics: {weak_topics} in {current_subject}/{current_subtopic}"
+        )
+        session["quiz_generation_error"] = (
+            "We couldn't find specific follow-up questions for your weak topics. Please review the materials and try the main quiz again."
+        )
         return redirect(url_for("show_results_page"))
 
     # Store the selected questions with subject/subtopic prefixes
-    session[get_session_key(current_subject, current_subtopic, "current_remedial_quiz_questions")] = remedial_questions
-    session[get_session_key(current_subject, current_subtopic, "questions_served_for_analysis")] = remedial_questions
-    session[get_session_key(current_subject, current_subtopic, "current_quiz_type")] = "remedial"
-    session[get_session_key(current_subject, current_subtopic, "topics_for_current_remedial_quiz")] = weak_topics
+    session[
+        get_session_key(
+            current_subject, current_subtopic, "current_remedial_quiz_questions"
+        )
+    ] = remedial_questions
+    session[
+        get_session_key(
+            current_subject, current_subtopic, "questions_served_for_analysis"
+        )
+    ] = remedial_questions
+    session[get_session_key(current_subject, current_subtopic, "current_quiz_type")] = (
+        "remedial"
+    )
+    session[
+        get_session_key(
+            current_subject, current_subtopic, "topics_for_current_remedial_quiz"
+        )
+    ] = weak_topics
 
-    app.logger.info(f"Selected {len(remedial_questions)} questions for the remedial quiz in {current_subject}/{current_subtopic}.")
+    app.logger.info(
+        f"Selected {len(remedial_questions)} questions for the remedial quiz in {current_subject}/{current_subtopic}."
+    )
 
     return redirect(url_for("take_remedial_quiz_page"))
 
@@ -700,17 +846,22 @@ def take_remedial_quiz_page():
     # Get current subject/subtopic from session
     current_subject = session.get("current_subject")
     current_subtopic = session.get("current_subtopic")
-    
+
     if not current_subject or not current_subtopic:
         app.logger.info("No current subject/subtopic in session for remedial quiz.")
         session["quiz_generation_error"] = (
             "Session error: Please take the main quiz first."
         )
         return redirect(url_for("show_results_page"))
-    
+
     # Get remedial questions with subject/subtopic prefix
-    remedial_questions = session.get(get_session_key(current_subject, current_subtopic, "current_remedial_quiz_questions"), [])
-    
+    remedial_questions = session.get(
+        get_session_key(
+            current_subject, current_subtopic, "current_remedial_quiz_questions"
+        ),
+        [],
+    )
+
     if not remedial_questions:
         app.logger.info(
             f"No remedial quiz in session for {current_subject}/{current_subtopic}, redirecting to results with error."
@@ -721,7 +872,11 @@ def take_remedial_quiz_page():
         return redirect(url_for("show_results_page"))
 
     quiz_title = "Remedial Quiz"
-    targeted_topics = session.get(get_session_key(current_subject, current_subtopic, "topics_for_current_remedial_quiz"))
+    targeted_topics = session.get(
+        get_session_key(
+            current_subject, current_subtopic, "topics_for_current_remedial_quiz"
+        )
+    )
     if targeted_topics:
         quiz_title += " (Focusing on: " + ", ".join(targeted_topics) + ")"
 
@@ -733,11 +888,11 @@ def take_remedial_quiz_page():
 @app.route("/results")
 def show_results_page():
     quiz_gen_error = session.pop("quiz_generation_error", None)
-    
+
     # Get current subject/subtopic from session
     current_subject = session.get("current_subject", "python")
     current_subtopic = session.get("current_subtopic", "functions")
-    
+
     # Load video data using the new system
     try:
         video_data = get_video_data(current_subject, current_subtopic)
@@ -748,7 +903,7 @@ def show_results_page():
                 VIDEO_DATA[key] = {
                     "title": video_info.get("title", ""),
                     "url": f"https://www.youtube.com/embed/{video_info.get('videoId', '')}?enablejsapi=1",
-                    "description": video_info.get("description", "")
+                    "description": video_info.get("description", ""),
                 }
         else:
             # Fallback to default Python topics if no video data
@@ -756,35 +911,36 @@ def show_results_page():
                 "functions": {
                     "title": "Python Functions Masterclass",
                     "url": "https://www.youtube.com/embed/kvO_nHnvPtQ?enablejsapi=1",
-                    "description": "Master Python functions, parameters, return values, and scope."
+                    "description": "Master Python functions, parameters, return values, and scope.",
                 },
                 "loops": {
                     "title": "Python Loops: For and While",
                     "url": "https://www.youtube.com/watch?v=94UHCEmprCY",
-                    "description": "Learn how to automate repetitive tasks using for and while loops."
-                }
+                    "description": "Learn how to automate repetitive tasks using for and while loops.",
+                },
             }
     except Exception as e:
         app.logger.error(f"Error loading video data for results page: {e}")
         VIDEO_DATA = {}
-    
+
     # Try to get lesson plans from the new system
     try:
         lesson_plans = get_lesson_plans(current_subject, current_subtopic)
     except Exception:
         lesson_plans = {}
-    
+
     return render_template(
         "results.html",
         quiz_generation_error=quiz_gen_error,
         VIDEO_DATA=VIDEO_DATA,
         LESSON_PLANS=lesson_plans,
         current_subject=current_subject,
-        current_subtopic=current_subtopic
+        current_subtopic=current_subtopic,
     )
 
 
-#  ADMIN PANEL ROUTES 
+#  ADMIN PANEL ROUTES
+
 
 @app.route("/admin")
 def admin_dashboard():
@@ -793,42 +949,43 @@ def admin_dashboard():
         # Load subjects data
         subjects_path = os.path.join(DATA_ROOT_PATH, "subjects.json")
         if os.path.exists(subjects_path):
-            with open(subjects_path, 'r', encoding='utf-8') as f:
+            with open(subjects_path, "r", encoding="utf-8") as f:
                 subjects_data = json.load(f)
                 subjects = subjects_data.get("subjects", {})
         else:
             subjects = {}
-        
+
         # Calculate stats
         total_subjects = len(subjects)
         total_subtopics = 0
         total_lessons = 0
         total_questions = 0
-        
+
         for subject_id in subjects.keys():
             try:
                 subject_config = data_loader.load_subject_config(subject_id)
                 if subject_config and "subtopics" in subject_config:
                     subtopics = subject_config["subtopics"]
                     total_subtopics += len(subtopics)
-                    
+
                     for subtopic_id, subtopic_data in subtopics.items():
                         total_lessons += subtopic_data.get("lesson_count", 0)
                         total_questions += subtopic_data.get("question_count", 0)
             except Exception as e:
                 app.logger.error(f"Error loading stats for subject {subject_id}: {e}")
-                
+
         stats = {
             "total_subjects": total_subjects,
             "total_subtopics": total_subtopics,
             "total_lessons": total_lessons,
-            "total_questions": total_questions
+            "total_questions": total_questions,
         }
-        
+
         return render_template("admin/dashboard.html", subjects=subjects, stats=stats)
     except Exception as e:
         app.logger.error(f"Error loading admin dashboard: {e}")
         return f"Error loading admin dashboard: {e}", 500
+
 
 @app.route("/admin/subjects")
 def admin_subjects():
@@ -836,16 +993,17 @@ def admin_subjects():
     try:
         subjects_path = os.path.join(DATA_ROOT_PATH, "subjects.json")
         if os.path.exists(subjects_path):
-            with open(subjects_path, 'r', encoding='utf-8') as f:
+            with open(subjects_path, "r", encoding="utf-8") as f:
                 subjects_data = json.load(f)
                 subjects = subjects_data.get("subjects", {})
         else:
             subjects = {}
-            
+
         return render_template("admin/subjects.html", subjects=subjects)
     except Exception as e:
         app.logger.error(f"Error loading subjects admin: {e}")
         return f"Error loading subjects: {e}", 500
+
 
 @app.route("/admin/subjects/create", methods=["GET", "POST"])
 def admin_create_subject():
@@ -858,22 +1016,22 @@ def admin_create_subject():
             description = data.get("description", "")
             icon = data.get("icon", "fas fa-book")
             color = data.get("color", "#007bff")
-            
+
             if not subject_id or not subject_name:
                 return jsonify({"error": "Subject ID and name are required"}), 400
-            
+
             # Load existing subjects
             subjects_path = os.path.join(DATA_ROOT_PATH, "subjects.json")
             if os.path.exists(subjects_path):
-                with open(subjects_path, 'r', encoding='utf-8') as f:
+                with open(subjects_path, "r", encoding="utf-8") as f:
                     subjects_data = json.load(f)
             else:
                 subjects_data = {"subjects": {}}
-            
+
             # Check if subject already exists
             if subject_id in subjects_data["subjects"]:
                 return jsonify({"error": "Subject already exists"}), 400
-            
+
             # Add new subject
             subjects_data["subjects"][subject_id] = {
                 "name": subject_name,
@@ -882,39 +1040,40 @@ def admin_create_subject():
                 "color": color,
                 "status": "active",
                 "created_date": "2025-01-01",
-                "subtopic_count": 0
+                "subtopic_count": 0,
             }
-            
+
             # Save subjects.json
-            with open(subjects_path, 'w', encoding='utf-8') as f:
+            with open(subjects_path, "w", encoding="utf-8") as f:
                 json.dump(subjects_data, f, indent=2)
-            
+
             # Create subject directory and config
             subject_dir = os.path.join(DATA_ROOT_PATH, "subjects", subject_id)
             os.makedirs(subject_dir, exist_ok=True)
-            
+
             subject_config = {
                 "subject_info": {
                     "name": subject_name,
                     "description": description,
                     "icon": icon,
-                    "color": color
+                    "color": color,
                 },
                 "subtopics": {},
-                "allowed_keywords": []
+                "allowed_keywords": [],
             }
-            
+
             config_path = os.path.join(subject_dir, "subject_config.json")
-            with open(config_path, 'w', encoding='utf-8') as f:
+            with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(subject_config, f, indent=2)
-            
+
             return jsonify({"success": True, "message": "Subject created successfully"})
-            
+
         except Exception as e:
             app.logger.error(f"Error creating subject: {e}")
             return jsonify({"error": str(e)}), 500
-    
+
     return render_template("admin/create_subject.html")
+
 
 @app.route("/admin/subjects/<subject>/edit")
 def admin_edit_subject(subject):
@@ -923,11 +1082,14 @@ def admin_edit_subject(subject):
         subject_config = data_loader.load_subject_config(subject)
         if not subject_config:
             return f"Subject '{subject}' not found", 404
-            
-        return render_template("admin/edit_subject.html", subject=subject, config=subject_config)
+
+        return render_template(
+            "admin/edit_subject.html", subject=subject, config=subject_config
+        )
     except Exception as e:
         app.logger.error(f"Error loading subject editor for {subject}: {e}")
         return f"Error: {e}", 500
+
 
 @app.route("/admin/subjects/<subject>/<subtopic>")
 def admin_edit_subtopic(subject, subtopic):
@@ -936,24 +1098,27 @@ def admin_edit_subtopic(subject, subtopic):
         subject_config = data_loader.load_subject_config(subject)
         if not subject_config or subtopic not in subject_config.get("subtopics", {}):
             return f"Subtopic '{subtopic}' not found in subject '{subject}'", 404
-            
+
         subtopic_data = subject_config["subtopics"][subtopic]
-        
+
         # Load additional data
         quiz_data = data_loader.load_quiz_data(subject, subtopic)
         lesson_plans = data_loader.load_lesson_plans(subject, subtopic)
         videos = data_loader.load_videos(subject, subtopic)
-        
-        return render_template("admin/edit_subtopic.html", 
-                             subject=subject, 
-                             subtopic=subtopic, 
-                             subtopic_data=subtopic_data,
-                             quiz_data=quiz_data,
-                             lesson_plans=lesson_plans,
-                             videos=videos)
+
+        return render_template(
+            "admin/edit_subtopic.html",
+            subject=subject,
+            subtopic=subtopic,
+            subtopic_data=subtopic_data,
+            quiz_data=quiz_data,
+            lesson_plans=lesson_plans,
+            videos=videos,
+        )
     except Exception as e:
         app.logger.error(f"Error loading subtopic editor for {subject}/{subtopic}: {e}")
         return f"Error: {e}", 500
+
 
 @app.route("/admin/subjects/<subject>/delete", methods=["DELETE"])
 def admin_delete_subject(subject):
@@ -963,44 +1128,46 @@ def admin_delete_subject(subject):
         subjects_path = os.path.join(DATA_ROOT_PATH, "subjects.json")
         if not os.path.exists(subjects_path):
             return jsonify({"error": "Subjects file not found"}), 404
-        
-        with open(subjects_path, 'r', encoding='utf-8') as f:
+
+        with open(subjects_path, "r", encoding="utf-8") as f:
             subjects_data = json.load(f)
-        
+
         # Check if subject exists
         if subject not in subjects_data.get("subjects", {}):
             return jsonify({"error": "Subject not found"}), 404
-        
+
         # Remove subject from subjects.json
         del subjects_data["subjects"][subject]
-        
+
         # Save subjects.json
-        with open(subjects_path, 'w', encoding='utf-8') as f:
+        with open(subjects_path, "w", encoding="utf-8") as f:
             json.dump(subjects_data, f, indent=2)
-        
+
         # Remove subject directory and all its contents
         subject_dir = os.path.join(DATA_ROOT_PATH, "subjects", subject)
         if os.path.exists(subject_dir):
             shutil.rmtree(subject_dir)
             app.logger.info(f"Removed subject directory: {subject_dir}")
-        
-        return jsonify({"success": True, "message": f"Subject '{subject}' deleted successfully"})
-        
+
+        return jsonify(
+            {"success": True, "message": f"Subject '{subject}' deleted successfully"}
+        )
+
     except Exception as e:
         app.logger.error(f"Error deleting subject {subject}: {e}")
         return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
-    if not os.getenv("OPEN_API_KEY"):
+    if not os.getenv("OPENAI_API_KEY"):
         print(
-            "ERROR: OPEN_API_KEY environment variable not set. AI features will not work."
+            "ERROR: OPENAI_API_KEY environment variable not set. AI features will not work."
         )
-    
+
     # Validate that we have the required data structure
     if not data_loader.validate_subject_subtopic("python", "functions"):
         print(
             "ERROR: Python functions data not found. Check data/subjects/python/functions/ directory."
         )
-    
+
     app.run(debug=True)
