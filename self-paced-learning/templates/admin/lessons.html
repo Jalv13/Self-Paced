@@ -71,8 +71,8 @@
             > {{ subtopic|title }}
           </div>
           {% else %}
-          <h1>Lessons Management</h1>
-          <p>Manage all lessons across your learning platform</p>
+          <h1>Lesson Management</h1>
+          <p>Create and manage remedial and initial lessons for all subjects</p>
           {% endif %}
         </header>
 
@@ -92,12 +92,41 @@
               <option value="{{ subject_id }}">{{ subject_data.name }}</option>
               {% endfor %}
             </select>
+            <select id="lessonTypeFilter" class="filter-select">
+              <option value="">All Lesson Types</option>
+              <option value="remedial">Remedial Lessons</option>
+              <option value="initial">Initial Lessons</option>
+            </select>
             {% endif %}
           </div>
           <div class="action-buttons">
-            <a href="/admin/lessons/create" class="action-btn primary">
-              <i class="fas fa-plus"></i> Create New Lesson
-            </a>
+            <div class="dropdown">
+              <button
+                class="action-btn primary dropdown-toggle"
+                type="button"
+                id="createDropdown"
+                data-toggle="dropdown"
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                <i class="fas fa-plus"></i> Create New Lesson
+                <i class="fas fa-chevron-down"></i>
+              </button>
+              <div class="dropdown-menu" aria-labelledby="createDropdown">
+                <a
+                  class="dropdown-item"
+                  href="/admin/lessons/create?type=remedial"
+                >
+                  <i class="fas fa-bandage"></i> Create Remedial Lesson
+                </a>
+                <a
+                  class="dropdown-item"
+                  href="/admin/lessons/create?type=initial"
+                >
+                  <i class="fas fa-seedling"></i> Create Initial Lesson
+                </a>
+              </div>
+            </div>
             {% if filtered_view %}
             <a href="/admin/lessons" class="action-btn secondary">
               <i class="fas fa-list"></i> View All Lessons
@@ -114,6 +143,7 @@
             class="lesson-card"
             data-subject="{{ subject }}"
             data-lesson-id="{{ lesson_id }}"
+            data-lesson-type="{{ lesson_data.type or 'remedial' }}"
           >
             <div class="lesson-header">
               <h3>{{ lesson_data.title }}</h3>
@@ -126,6 +156,13 @@
                   {{ subject_info.name or subject|title }}
                 </span>
                 <span class="subtopic-badge">{{ subtopic|title }}</span>
+                <span
+                  class="lesson-type-badge {{ (lesson_data.type or 'remedial')|lower }}"
+                >
+                  {% if (lesson_data.type or 'remedial')|lower == 'initial' %}
+                  <i class="fas fa-seedling"></i> Initial {% else %}
+                  <i class="fas fa-bandage"></i> Remedial {% endif %}
+                </span>
               </div>
             </div>
 
@@ -486,7 +523,8 @@
       }
 
       .subject-badge,
-      .subtopic-badge {
+      .subtopic-badge,
+      .lesson-type-badge {
         display: inline-flex;
         align-items: center;
         gap: 6px;
@@ -505,6 +543,72 @@
         background: #f7fafc;
         color: #2d3748;
         border: 1px solid #e2e8f0;
+      }
+
+      .lesson-type-badge.remedial {
+        background: #fed7d7;
+        color: #c53030;
+        border: 1px solid #feb2b2;
+      }
+
+      .lesson-type-badge.initial {
+        background: #c6f6d5;
+        color: #2f855a;
+        border: 1px solid #9ae6b4;
+      }
+
+      /* Dropdown Styles */
+      .dropdown {
+        position: relative;
+        display: inline-block;
+      }
+
+      .dropdown-toggle::after {
+        margin-left: 8px;
+      }
+
+      .dropdown-menu {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        z-index: 1000;
+        display: none;
+        min-width: 200px;
+        padding: 8px 0;
+        margin: 2px 0 0;
+        background-color: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+      }
+
+      .dropdown-menu.show {
+        display: block;
+      }
+
+      .dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 10px 20px;
+        color: #2d3748;
+        text-decoration: none;
+        background-color: transparent;
+        border: 0;
+        font-size: 0.9rem;
+        transition: all 0.2s ease;
+      }
+
+      .dropdown-item:hover {
+        background-color: #f7fafc;
+        color: #2d3748;
+        text-decoration: none;
+      }
+
+      .dropdown-item i {
+        width: 16px;
+        text-align: center;
       }
 
       .lesson-content {
@@ -700,22 +804,54 @@
       document.getElementById('subjectFilter').addEventListener('change', function() {
           filterLessons();
       });
+
+      document.getElementById('lessonTypeFilter').addEventListener('change', function() {
+          filterLessons();
+      });
       {% endif %}
+
+      // Dropdown functionality
+      document.addEventListener('DOMContentLoaded', function() {
+          const dropdown = document.querySelector('.dropdown');
+          const dropdownToggle = document.querySelector('.dropdown-toggle');
+          const dropdownMenu = document.querySelector('.dropdown-menu');
+
+          if (dropdownToggle && dropdownMenu) {
+              dropdownToggle.addEventListener('click', function(e) {
+                  e.preventDefault();
+                  dropdownMenu.classList.toggle('show');
+              });
+
+              // Close dropdown when clicking outside
+              document.addEventListener('click', function(e) {
+                  if (!dropdown.contains(e.target)) {
+                      dropdownMenu.classList.remove('show');
+                  }
+              });
+          }
+      });
 
       function filterLessons() {
           const searchTerm = document.getElementById('lessonSearch').value.toLowerCase();
           {% if not filtered_view %}
           const selectedSubject = document.getElementById('subjectFilter').value;
+          const selectedLessonType = document.getElementById('lessonTypeFilter').value;
           {% endif %}
           const lessonCards = document.querySelectorAll('.lesson-card');
 
           lessonCards.forEach(card => {
               const title = card.querySelector('h3').textContent.toLowerCase();
               const subject = card.dataset.subject;
+              {% if not filtered_view %}
+              const lessonType = card.dataset.lessonType || 'remedial';
+              {% endif %}
 
               let showCard = title.includes(searchTerm);
               {% if not filtered_view %}
               if (selectedSubject && subject !== selectedSubject) {
+                  showCard = false;
+              }
+              if (selectedLessonType && lessonType !== selectedLessonType) {
                   showCard = false;
               }
               {% endif %}

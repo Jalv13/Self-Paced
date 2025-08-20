@@ -898,13 +898,15 @@ def take_remedial_quiz_page():
 def show_results_page():
     quiz_gen_error = session.pop("quiz_generation_error", None)
 
-    # Get current subject/subtopic from session - NO DEFAULTS TO PREVENT WRONG CONTEXT
+    # Get current subject/subtopic from session
     current_subject = session.get("current_subject")
     current_subtopic = session.get("current_subtopic")
 
-    # If no session context, redirect to subject selection
+    # If no session context, redirect to subject selection instead of setting defaults
     if not current_subject or not current_subtopic:
-        app.logger.warning("No subject/subtopic context in session for results page")
+        app.logger.warning(
+            "No subject/subtopic context in session for results page - redirecting to subject selection"
+        )
         return redirect(url_for("subject_selection"))
 
     # Load video data using the new system
@@ -948,8 +950,8 @@ def show_results_page():
         quiz_generation_error=quiz_gen_error,
         VIDEO_DATA=VIDEO_DATA,
         LESSON_PLANS=lesson_plans,
-        current_subject=current_subject,
-        current_subtopic=current_subtopic,
+        CURRENT_SUBJECT=current_subject,
+        CURRENT_SUBTOPIC=current_subtopic,
     )
 
 
@@ -1307,11 +1309,25 @@ def admin_create_lesson():
             data = request.json
             subject = data.get("subject")
             subtopic = data.get("subtopic")
-            lesson_id = data.get("id", "").lower().replace(" ", "_")
-            lesson_title = data.get("title", "")
-            video_id = data.get("videoId", "")
+            # Accept both 'lesson_id' (from form) and 'id' (fallback), sanitize to slug
+            raw_lesson_id = (data.get("lesson_id") or data.get("id") or "").strip()
+            # Normalize: lowercase, spaces->hyphens, keep a-z0-9-_ only
+            lesson_id = re.sub(r"[^a-z0-9_-]+", "-", raw_lesson_id.lower()).strip("-_")
+            lesson_title = data.get("title", "").strip()
+            video_id = data.get("videoId", "").strip()
             content = data.get("content", [])
             tags = data.get("tags", [])
+            lesson_type = (
+                (data.get("lessonType") or data.get("type") or "remedial")
+                .strip()
+                .lower()
+            )
+
+            # Ensure tags is a list of strings
+            if isinstance(tags, str):
+                tags = [t.strip() for t in tags.split(",") if t.strip()]
+            elif isinstance(tags, list):
+                tags = [str(t).strip() for t in tags if str(t).strip()]
 
             if not all([subject, subtopic, lesson_id, lesson_title]):
                 return (
@@ -1322,6 +1338,11 @@ def admin_create_lesson():
                     ),
                     400,
                 )
+
+            # Validate lesson type
+            if lesson_type not in ("initial", "remedial"):
+                # Default to remedial if invalid
+                lesson_type = "remedial"
 
             # Validate subject and subtopic exist
             if not data_loader.validate_subject_subtopic(subject, subtopic):
@@ -1345,6 +1366,7 @@ def admin_create_lesson():
                 "videoId": video_id,
                 "content": content,
                 "tags": tags,
+                "type": lesson_type,
                 "created_date": "2025-01-01",
             }
 
@@ -1382,16 +1404,27 @@ def admin_edit_lesson(subject, subtopic, lesson_id):
             video_id = data.get("videoId", "")
             content = data.get("content", [])
             tags = data.get("tags", [])
+            lesson_type = (
+                (data.get("lessonType") or data.get("type")).strip().lower()
+                if (data.get("lessonType") or data.get("type"))
+                else None
+            )
 
             if not lesson_title:
                 return jsonify({"error": "Lesson title is required"}), 400
 
             # Update lesson data
+            # Load existing to preserve fields not provided
+            existing = get_lesson_plans(subject, subtopic).get(lesson_id, {})
+            if lesson_type is None:
+                lesson_type = existing.get("type", "remedial")
+
             lesson_data = {
                 "title": lesson_title,
                 "videoId": video_id,
                 "content": content,
                 "tags": tags,
+                "type": lesson_type,
                 "updated_date": "2025-01-01",
             }
 
@@ -1712,6 +1745,86 @@ def api_get_subtopics(subject):
     except Exception as e:
         app.logger.error(f"Error getting subtopics for {subject}: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/quiz-prerequisites/<subject>/<subtopic>")
+def api_quiz_prerequisites(subject, subtopic):
+    """Return prerequisite status for a subject/subtopic. Currently permissive (no prerequisites)."""
+    try:
+        # In future, read real prerequisites from subject_config
+        if not data_loader.validate_subject_subtopic(subject, subtopic):
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "unmet": ["missing_subtopic_data"],
+                        "prerequisites": [],
+                    }
+                ),
+                404,
+            )
+
+        return jsonify({"ok": True, "unmet": [], "prerequisites": []})
+    except Exception as e:
+        app.logger.error(f"Error in quiz prerequisites for {subject}/{subtopic}: {e}")
+        return jsonify({"ok": True, "unmet": [], "prerequisites": []})
+
+
+@app.route("/api/lesson-progress/stats/<subject>/<subtopic>")
+def api_lesson_progress_stats(subject, subtopic):
+    """Return lightweight lesson progress stats for a subject/subtopic."""
+    try:
+        # Progress is currently stored flat by topic; provide a safe empty structure
+        user_progress = session.get("progress", {})
+        response = {
+            "subject": subject,
+            "subtopic": subtopic,
+            "read": {},
+            "watched": {},
+            "totals": {"read": 0, "watched": 0},
+            "raw": user_progress,
+        }
+        return jsonify(response)
+    except Exception as e:
+        app.logger.error(f"Error getting lesson progress stats: {e}")
+        return jsonify(
+            {
+                "subject": subject,
+                "subtopic": subtopic,
+                "read": {},
+                "watched": {},
+                "totals": {"read": 0, "watched": 0},
+            }
+        )
+
+
+@app.route("/api/admin/status")
+def api_admin_status():
+    """Return admin override status expected by frontend."""
+    try:
+        return jsonify(
+            {"success": True, "admin_override": session.get("admin_override", False)}
+        )
+    except Exception as e:
+        app.logger.error(f"Error getting admin status: {e}")
+        return jsonify({"success": True, "admin_override": False})
+
+
+@app.route("/api/lesson-plans/<subject>/<subtopic>")
+def api_lesson_plans(subject, subtopic):
+    """Return lesson plans for a subject/subtopic in a stable shape."""
+    try:
+        if not data_loader.validate_subject_subtopic(subject, subtopic):
+            return jsonify({"lessons": {}}), 404
+
+        lesson_plans = data_loader.load_lesson_plans(subject, subtopic) or {}
+        # Ensure consistent shape
+        if "lessons" not in lesson_plans:
+            lesson_plans = {"lessons": {}}
+        return jsonify(lesson_plans)
+    except Exception as e:
+        app.logger.error(f"Error getting lesson plans for {subject}/{subtopic}: {e}")
+        return jsonify({"lessons": {}})
 
 
 @app.route("/api/lessons/find-by-tags", methods=["POST"])

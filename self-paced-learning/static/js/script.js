@@ -98,6 +98,8 @@ document.addEventListener("DOMContentLoaded", function () {
   function startVideoProgressTracking() {
     if (!ytPlayer || !currentTopic) return;
 
+    let videoWatchedMarked = false; // Flag to prevent multiple API calls
+
     const trackingInterval = setInterval(() => {
       if (!ytPlayer || ytPlayer.getPlayerState() === YT.PlayerState.UNSTARTED) {
         clearInterval(trackingInterval);
@@ -111,6 +113,12 @@ document.addEventListener("DOMContentLoaded", function () {
         const progress = Math.min((currentTime / duration) * 100, 100);
         updateVideoProgress(currentTopic, progress);
 
+        // Mark video as watched at 80% completion (for quiz prerequisites)
+        if (!videoWatchedMarked && progress >= 80) {
+          videoWatchedMarked = true;
+          markVideoAsWatched();
+        }
+
         // Auto-complete for admins at 80% or if override enabled
         if (isAdminOverride && progress >= 80) {
           handleVideoComplete();
@@ -123,9 +131,73 @@ document.addEventListener("DOMContentLoaded", function () {
     videoModal.dataset.trackingInterval = trackingInterval;
   }
 
+  // Mark video as watched for quiz prerequisites
+  function markVideoAsWatched() {
+    const currentPath = window.location.pathname;
+    if (currentPath.startsWith("/subjects/")) {
+      const pathParts = currentPath.split("/");
+      const subject = pathParts[2];
+      const subtopic = currentTopic;
+
+      fetch("/api/video-progress/mark-watched", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          subject: subject,
+          subtopic: subtopic,
+        }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          if (data.success) {
+            console.log(`Video marked as watched: ${subject}/${subtopic}`);
+            if (typeof showNotification === "function") {
+              showNotification(
+                "Video progress recorded! This counts toward quiz prerequisites.",
+                "success"
+              );
+            }
+          }
+        })
+        .catch((error) => console.error("Error marking video watched:", error));
+    }
+  }
+
   function handleVideoComplete() {
     if (currentTopic) {
       saveProgress(currentTopic, 100);
+
+      // Mark video as watched for quiz prerequisites
+      const currentPath = window.location.pathname;
+      if (currentPath.startsWith("/subjects/")) {
+        const pathParts = currentPath.split("/");
+        const subject = pathParts[2];
+        const subtopic = currentTopic;
+
+        // Mark video as watched via API
+        fetch("/api/video-progress/mark-watched", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            subject: subject,
+            subtopic: subtopic,
+          }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            if (data.success) {
+              console.log(`Video marked as watched: ${subject}/${subtopic}`);
+              showVideoCompletionNotification();
+            }
+          })
+          .catch((error) =>
+            console.error("Error marking video watched:", error)
+          );
+      }
 
       // Redirect to quiz for functions topic
       if (currentTopic === "functions") {
@@ -133,6 +205,19 @@ document.addEventListener("DOMContentLoaded", function () {
           window.location.href = "/quiz/functions";
         }, 1000);
       }
+    }
+  }
+
+  // Show notification when video is completed
+  function showVideoCompletionNotification() {
+    // You can customize this notification as needed
+    if (typeof showNotification === "function") {
+      showNotification(
+        "Video completed! This counts toward quiz prerequisites.",
+        "success"
+      );
+    } else {
+      console.log("Video completed and marked as watched!");
     }
   }
 

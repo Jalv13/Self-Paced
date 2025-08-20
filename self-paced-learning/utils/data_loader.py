@@ -326,19 +326,80 @@ class DataLoader:
         if not os.path.exists(subtopic_path):
             return False
 
-        # Check if at least quiz_data.json exists
-        quiz_path = os.path.join(subtopic_path, "quiz_data.json")
-        return os.path.exists(quiz_path)
+        # Consider the subtopic valid if any known data file exists
+        candidate_files = [
+            "quiz_data.json",
+            "lesson_plans.json",
+            "question_pool.json",
+            "videos.json",
+        ]
+        for fname in candidate_files:
+            if os.path.exists(os.path.join(subtopic_path, fname)):
+                return True
+        return False
 
-    def find_lessons_by_tags(
+    def find_remedial_lessons_by_tags(
         self, subject: str, target_tags: List[str]
     ) -> List[Dict[str, Any]]:
         """
-        Find lessons that match any of the target tags.
+        Find remedial lessons that match any of the target weak topic tags.
+
+        These lessons are specifically designed to address knowledge gaps
+        identified through quiz analysis.
+
+        Args:
+            subject: Subject name (e.g., "python")
+            target_tags: List of weak topic tags to search for
+
+        Returns:
+            List of matching remedial lessons with metadata
+        """
+        return self._find_lessons_by_tags_and_type(subject, target_tags, "remedial")
+
+    def find_initial_lessons_by_tags(
+        self, subject: str, target_tags: List[str]
+    ) -> List[Dict[str, Any]]:
+        """
+        Find initial lessons that match any of the target topic tags.
+
+        These lessons are designed for progressive learning and initial
+        topic introduction.
+
+        Args:
+            subject: Subject name (e.g., "python")
+            target_tags: List of topic tags to search for
+
+        Returns:
+            List of matching initial lessons with metadata
+        """
+        return self._find_lessons_by_tags_and_type(subject, target_tags, "initial")
+
+    def find_lessons_by_tags(
+        self, subject: str, target_tags: List[str], lesson_type: str = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Find lessons that match any of the target tags, optionally filtered by type.
 
         Args:
             subject: Subject name (e.g., "python")
             target_tags: List of tags to search for
+            lesson_type: Optional lesson type filter ("remedial", "initial", or None for all)
+
+        Returns:
+            List of matching lessons with metadata
+        """
+        return self._find_lessons_by_tags_and_type(subject, target_tags, lesson_type)
+
+    def _find_lessons_by_tags_and_type(
+        self, subject: str, target_tags: List[str], lesson_type: str = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Find lessons that match any of the target tags, optionally filtered by type.
+
+        Args:
+            subject: Subject name (e.g., "python")
+            target_tags: List of tags to search for
+            lesson_type: Optional lesson type filter ("remedial", "initial", or None for all)
 
         Returns:
             List of matching lessons with metadata
@@ -351,7 +412,7 @@ class DataLoader:
             if not subject_config or "subtopics" not in subject_config:
                 return matching_lessons
 
-            # Search through all subtopics
+            # Search through all subtopics for lessons
             for subtopic_id in subject_config["subtopics"].keys():
                 lesson_plans = self.load_lesson_plans(subject, subtopic_id)
                 if not lesson_plans or "lessons" not in lesson_plans:
@@ -359,6 +420,13 @@ class DataLoader:
 
                 # Check each lesson in the subtopic
                 for lesson_id, lesson_data in lesson_plans["lessons"].items():
+                    # Filter by lesson type if specified
+                    if (
+                        lesson_type
+                        and lesson_data.get("type", "").lower() != lesson_type.lower()
+                    ):
+                        continue
+
                     lesson_tags = set(lesson_data.get("tags", []))
                     target_tags_set = set(target_tags)
 
@@ -370,6 +438,7 @@ class DataLoader:
                                 "subtopic": subtopic_id,
                                 "lesson_id": lesson_id,
                                 "title": lesson_data.get("title", ""),
+                                "type": lesson_data.get("type", ""),
                                 "tags": lesson_data.get("tags", []),
                                 "matching_tags": list(
                                     lesson_tags.intersection(target_tags_set)
@@ -378,7 +447,8 @@ class DataLoader:
                         )
 
         except Exception as e:
-            current_app.logger.error(f"Error finding lessons by tags: {e}")
+            if current_app:
+                current_app.logger.error(f"Error finding lessons by tags: {e}")
 
         return matching_lessons
 
@@ -488,13 +558,13 @@ class DataLoader:
             existing_tags = config.get("allowed_tags", [])
             all_tags.update([tag.lower() for tag in existing_tags])
 
-            # Scan all subtopics for lesson and question tags
+            # Scan all subtopics for remedial lesson and question tags
             subject_dir = os.path.join(self.data_root, "subjects", subject)
             if os.path.exists(subject_dir):
                 for item in os.listdir(subject_dir):
                     item_path = os.path.join(subject_dir, item)
                     if os.path.isdir(item_path) and item not in ["__pycache__"]:
-                        # Check lesson plans
+                        # Check remedial lesson plans
                         lesson_plans_path = os.path.join(item_path, "lesson_plans.json")
                         if os.path.exists(lesson_plans_path):
                             try:
@@ -511,7 +581,7 @@ class DataLoader:
                             except Exception as e:
                                 if current_app:
                                     current_app.logger.warning(
-                                        f"Error reading lesson plans for {subject}/{item}: {e}"
+                                        f"Error reading remedial lesson plans for {subject}/{item}: {e}"
                                     )
 
                         # Check quiz data

@@ -635,7 +635,15 @@
           .then((data) => {
             if (data.success) {
               updateOverrideButton(data.admin_override);
-              showNotification(data.message, "success");
+              showNotification(
+                data.message + " - Refreshing page...",
+                "success"
+              );
+
+              // Refresh the page after a short delay to show the notification
+              setTimeout(() => {
+                window.location.reload();
+              }, 1500);
             } else {
               showNotification("Error: " + data.error, "error");
             }

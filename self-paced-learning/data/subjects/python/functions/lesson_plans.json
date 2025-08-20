@@ -4,6 +4,7 @@
       "title": "A Comprehensive Guide to Python Functions",
       "videoId": "kvO_nHnvPtQ",
       "tags": ["python function basics", "function definition", "syntax"],
+      "type": "remedial",
       "content": [
         {
           "type": "header",
@@ -56,6 +57,7 @@
       "title": "Defining Functions: Syntax and Terminology",
       "videoId": "kvO_nHnvPtQ",
       "tags": ["function definition", "syntax", "terminology"],
+      "type": "initial",
       "content": [
         {
           "type": "header",
@@ -109,6 +111,7 @@
       "title": "Reviewing Core Function Syntax",
       "videoId": "kvO_nHnvPtQ",
       "tags": ["syntax", "python syntax", "function definition"],
+      "type": "initial",
       "content": [
         {
           "type": "header",
@@ -144,6 +147,7 @@
       "title": "Function Terminology and Concepts",
       "videoId": "kvO_nHnvPtQ",
       "tags": ["terminology", "function definition"],
+      "type": "initial",
       "content": [
         {
           "type": "header",
@@ -181,6 +185,7 @@
       "title": "Advanced Argument Passing Techniques",
       "videoId": "kvO_nHnvPtQ",
       "tags": ["passing function arguments", "function definition"],
+      "type": "initial",
       "content": [
         {
           "type": "header",
@@ -218,6 +223,7 @@
       "title": "Using Keyword Arguments Effectively",
       "videoId": "kvO_nHnvPtQ",
       "tags": ["keyword arguments", "passing function arguments"],
+      "type": "initial",
       "content": [
         {
           "type": "header",
@@ -258,6 +264,7 @@
       "title": "Using Default Parameter Values",
       "videoId": "kvO_nHnvPtQ",
       "tags": ["default parameter values", "passing function arguments"],
+      "type": "initial",
       "content": [
         {
           "type": "header",
@@ -305,6 +312,7 @@
       "title": "Mastering *args and **kwargs",
       "videoId": "kvO_nHnvPtQ",
       "tags": ["*args and **kwargs", "passing function arguments"],
+      "type": "initial",
       "content": [
         {
           "type": "header",
@@ -359,6 +367,7 @@
         "positional-only and keyword-only arguments",
         "passing function arguments"
       ],
+      "type": "initial",
       "content": [
         {
           "type": "header",
@@ -413,7 +422,8 @@
     "return values": {
       "title": "Understanding Return Values",
       "videoId": "kvO_nHnvPtQ",
-      "tags": ["return values", "function return values"],
+      "tags": ["return values", "function definition"],
+      "type": "initial",
       "content": [
         {
           "type": "header",
@@ -457,6 +467,7 @@
       "title": "Understanding Return Values",
       "videoId": "kvO_nHnvPtQ",
       "tags": ["function return values", "return values"],
+      "type": "initial",
       "content": [
         {
           "type": "header",
@@ -491,7 +502,8 @@
     "recursive functions": {
       "title": "The Concept of Recursive Functions",
       "videoId": "kvO_nHnvPtQ",
-      "tags": ["recursive functions"],
+      "tags": ["recursive functions", "function definition"],
+      "type": "initial",
       "content": [
         {
           "type": "header",
@@ -542,6 +554,7 @@
       "title": "Error Handling in Functions",
       "videoId": "kvO_nHnvPtQ",
       "tags": ["error handling"],
+      "type": "initial",
       "content": [
         {
           "type": "header",
@@ -586,6 +599,51 @@
           "text": "<strong>Key takeaway:</strong> Wrap risky operations (like division, file access, or type conversions) in a `try...except` block to gracefully manage potential errors and make your functions more reliable."
         }
       ]
+    },
+    "functions": {
+      "title": "Functions",
+      "videoId": "",
+      "content": [
+        {
+          "type": "header",
+          "text": "test"
+        },
+        {
+          "type": "paragraph",
+          "text": "test"
+        },
+        {
+          "type": "code",
+          "text": "   if not data_loader.validate_subject_subtopic(subject, subtopic):\n            return jsonify({\n                \"ok\": False,\n                \"unmet\": [\"missing_subtopic_data\"],\n                \"prerequisites\": []\n            }), 404"
+        },
+        {
+          "type": "code",
+          "text": "   if not data_loader.validate_subject_subtopic(subject, subtopic):\n            return jsonify({\n                \"ok\": False,\n                \"unmet\": [\"missing_subtopic_data\"],\n                \"prerequisites\": []\n            }), 404"
+        },
+        {
+          "type": "code",
+          "text": "   if not data_loader.validate_subject_subtopic(subject, subtopic):\n            return jsonify({\n                \"ok\": False,\n                \"unmet\": [\"missing_subtopic_data\"],\n                \"prerequisites\": []\n            }), 404"
+        },
+        {
+          "type": "code",
+          "text": "   if not data_loader.validate_subject_subtopic(subject, subtopic):\n            return jsonify({\n                \"ok\": False,\n                \"unmet\": [\"missing_subtopic_data\"],\n                \"prerequisites\": []\n            }), 404"
+        },
+        {
+          "type": "list",
+          "items": [
+            "   if not data_loader.validate_subject_subtopic(subject, subtopic):\n            return jsonify({\n                \"ok\": False,\n                \"unmet\": [\"missing_subtopic_data\"],\n                \"prerequisites\": []\n            }), 404",
+            "asdasd",
+            "dsadsadss"
+          ]
+        },
+        {
+          "type": "summary",
+          "text": "lorem ipsum "
+        }
+      ],
+      "tags": ["function definitions", "*args and **kwargs"],
+      "type": "initial",
+      "created_date": "2025-01-01"
     }
   }
 }

@@ -30,7 +30,7 @@
         <main class="admin-content">
             <header class="admin-header">
                 <h1>{% if edit_mode %}Edit Lesson{% else %}Create New Lesson{% endif %}</h1>
-                <p>{% if edit_mode %}Modify the lesson content and structure{% else %}Create a comprehensive lesson with rich content{% endif %}</p>
+                <p>{% if edit_mode %}Modify lesson content{% else %}Create targeted lesson content for student learning{% endif %}</p>
                 <div class="breadcrumb">
                     <a href="/admin/lessons">Lessons</a> > 
                     {% if edit_mode %}
@@ -95,13 +95,28 @@
                                        {% if edit_mode %}value="{{ lesson_data.title }}"{% endif %}>
                             </div>
                         </div>
-                        
-                        <div class="form-group">
-                            <label for="videoId">YouTube Video ID</label>
-                            <input type="text" id="videoId" name="videoId" 
-                                   placeholder="e.g., kvO_nHnvPtQ (from youtube.com/watch?v=kvO_nHnvPtQ)"
-                                   {% if edit_mode %}value="{{ lesson_data.videoId or '' }}"{% endif %}>
-                            <small>Optional: YouTube video ID to embed with this lesson</small>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="lessonType">Lesson Type *</label>
+                                <select id="lessonType" name="lessonType" required>
+                                    <option value="remedial" {% if edit_mode and (lesson_data.type or 'remedial') == 'remedial' %}selected{% elif not edit_mode and request.args.get('type') == 'remedial' %}selected{% endif %}>
+                                        <i class="fas fa-bandage"></i> Remedial Lesson
+                                    </option>
+                                    <option value="initial" {% if edit_mode and lesson_data.type == 'initial' %}selected{% elif not edit_mode and request.args.get('type') == 'initial' %}selected{% endif %}>
+                                        <i class="fas fa-seedling"></i> Initial Lesson
+                                    </option>
+                                </select>
+                                <small id="lessonTypeHelp">Remedial lessons address knowledge gaps; Initial lessons introduce new topics</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="videoId">YouTube Video ID</label>
+                                <input type="text" id="videoId" name="videoId" 
+                                       placeholder="e.g., kvO_nHnvPtQ (from youtube.com/watch?v=kvO_nHnvPtQ)"
+                                       {% if edit_mode %}value="{{ lesson_data.videoId or '' }}"{% endif %}>
+                                <small>Optional: YouTube video ID to embed with this lesson</small>
+                            </div>
                         </div>
                         
                         <div class="form-group">
@@ -113,7 +128,7 @@
                                        required autocomplete="off">
                                 <div class="tag-suggestions" id="lessonTagSuggestions"></div>
                             </div>
-                            <small>Select from available tags or type to search. Tags help the AI match lessons to student needs</small>
+                            <small id="tagsHelpText">Select from available tags or type to search. Tags help match lessons to student needs</small>
                             <div class="tags-preview" id="lessonTagsPreview"></div>
                             <div class="available-tags" id="lessonAvailableTags"></div>
                             <div class="error-message" id="lessonTagsError"></div>
@@ -841,6 +856,20 @@
         
         // Initialize form
         document.addEventListener('DOMContentLoaded', function() {
+            // Auto-generate lesson_id from title if empty when title loses focus
+            const titleInput = document.getElementById('title');
+            const idInput = document.getElementById('lesson_id');
+            titleInput && titleInput.addEventListener('blur', () => {
+                if (!idInput.value.trim() && titleInput.value.trim()) {
+                    const slug = titleInput.value
+                        .toLowerCase()
+                        .replace(/[^a-z0-9\s_-]/g, '')
+                        .replace(/\s+/g, '-')
+                        .replace(/-+/g, '-')
+                        .replace(/^[-_]+|[-_]+$/g, '');
+                    idInput.value = slug;
+                }
+            });
             {% if edit_mode and lesson_data.content %}
                 // Load existing content for editing
                 const existingContent = {{ lesson_data.content | tojson }};
@@ -850,6 +879,12 @@
             {% endif %}
             
             updateContentVisibility();
+            
+            // Initialize lesson type help text
+            updateLessonTypeHelp();
+            
+            // Add lesson type change handler
+            document.getElementById('lessonType').addEventListener('change', updateLessonTypeHelp);
             
             // Tag API integration variables
             let availableTags = [];
@@ -885,6 +920,18 @@
                 } catch (error) {
                     console.error('Error loading tags:', error);
                     availableTags = [];
+                }
+            }
+
+            // Update lesson type help text based on selected type
+            function updateLessonTypeHelp() {
+                const lessonType = document.getElementById('lessonType').value;
+                const tagsHelpText = document.getElementById('tagsHelpText');
+                
+                if (lessonType === 'initial') {
+                    tagsHelpText.textContent = 'Select from available tags or type to search. Tags help match initial lessons to new learning topics';
+                } else {
+                    tagsHelpText.textContent = 'Select from available tags or type to search. Tags help the AI match remedial lessons to student weak areas';
                 }
             }
 
@@ -1292,6 +1339,7 @@
                 subtopic: document.getElementById('subtopic').value,
                 lesson_id: document.getElementById('lesson_id').value,
                 title: document.getElementById('title').value,
+                lessonType: document.getElementById('lessonType').value,
                 videoId: document.getElementById('videoId').value,
                 tags: document.getElementById('lessonTags').value.split(',').map(tag => tag.trim()).filter(tag => tag),
                 content: collectContentData()
