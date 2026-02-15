@@ -2,6 +2,7 @@ import os
 import json
 import shutil
 import re  # For parsing AI responses
+from utils.code_validator import CodeValidator  # AST-based code validation
 from flask import (
     Flask,
     render_template,
@@ -49,6 +50,9 @@ MASTERY_THRESHOLD = 0.80  # 80% score to consider targeted weak topics mastered
 #  Initialize DataLoader
 DATA_ROOT_PATH = os.path.join(os.path.dirname(__file__), "data")
 data_loader = DataLoader(DATA_ROOT_PATH)
+
+#  Initialize CodeValidator for AST-based code grading
+code_validator = CodeValidator()
 
 
 #  Helper Functions
@@ -483,11 +487,44 @@ def analyze_quiz():
                 detail += f"Correct Answer(s): {correct_answer_text}\n"
 
         elif question_type == "coding":
-            # For coding questions, we don't grade automatically.
-            # We will let the AI review the code.
-            status = "For AI Review"
-            # Provide the sample solution for the AI's reference.
+            # AST-based code validation before AI review
             sample_solution = q_data.get("sample_solution", "")
+            expected_output = q_data.get("expected_output", "")
+            expected_constructs = q_data.get("expected_constructs", [])
+
+            # Run full AST validation pipeline
+            validation = code_validator.full_validate(
+                code=user_answer,
+                expected_output=expected_output if expected_output else None,
+                expected_constructs=expected_constructs if expected_constructs else None,
+                sample_solution=sample_solution if sample_solution else None,
+                timeout=5,
+            )
+
+            status = validation["status"]
+
+            # If AST validation confirms correct, count it
+            if validation["is_correct"]:
+                correct_answers += 1
+
+            # Add validation details to the submission detail
+            if validation["feedback_details"]:
+                detail += f"AST Validation: {validation['feedback_details']}\n"
+
+            # Include syntax info if there was an error
+            if validation["syntax"] and not validation["syntax"]["valid"]:
+                line_info = f" (line {validation['syntax']['line']})" if validation["syntax"]["line"] else ""
+                detail += f"Syntax Error{line_info}: {validation['syntax']['error']}\n"
+
+            # Include execution results if available
+            if validation["execution"]:
+                exec_data = validation["execution"]
+                if exec_data.get("output"):
+                    detail += f"Student Output:\n---\n{exec_data['output']}\n---\n"
+                if expected_output:
+                    detail += f"Expected Output:\n---\n{expected_output.strip()}\n---\n"
+
+            # Still include sample solution for AI reference
             if sample_solution:
                 detail += f"Sample Solution:\n---\n{sample_solution}\n---\n"
 
@@ -950,6 +987,7 @@ def show_results_page():
         LESSON_PLANS=lesson_plans,
         current_subject=current_subject,
         current_subtopic=current_subtopic,
+        is_admin=session.get("admin_override", False),
     )
 
 

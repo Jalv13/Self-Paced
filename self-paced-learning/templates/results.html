@@ -647,6 +647,28 @@
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;");
               contentHtml += `<pre><code>${escapedCode}</code></pre>`;
+            } else if (item.type === "code_runner") {
+              // Render interactive code exercises from lessons
+              const starterCode = (item.starter_code || "# Write your code here")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+              const solution = (item.solution || "")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+              contentHtml += `<div class="code-runner-block" style="background:#1a1a2e; border-radius:8px; padding:16px; margin:12px 0;">`;
+              contentHtml += `<div style="color:#4ecca3; font-weight:bold; margin-bottom:8px;">💻 Practice Exercise</div>`;
+              contentHtml += `<pre style="background:#16213e; padding:12px; border-radius:6px; color:#e0e0e0; overflow-x:auto;"><code>${starterCode}</code></pre>`;
+              if (item.hints && item.hints.length > 0) {
+                contentHtml += `<details style="margin-top:8px;"><summary style="color:#4ecca3; cursor:pointer;">💡 Hints</summary><ul style="color:#ccc;">`;
+                item.hints.forEach(hint => { contentHtml += `<li>${hint}</li>`; });
+                contentHtml += `</ul></details>`;
+              }
+              if (solution) {
+                contentHtml += `<details style="margin-top:8px;"><summary style="color:#f0a500; cursor:pointer;">✅ Solution</summary>`;
+                contentHtml += `<pre style="background:#16213e; padding:12px; border-radius:6px; color:#4ecca3; overflow-x:auto; margin-top:6px;"><code>${solution}</code></pre>`;
+                contentHtml += `</details>`;
+              }
+              contentHtml += `</div>`;
             } else if (item.type === "summary") {
               contentHtml += `<p><strong>${item.text}</strong></p>`;
             }
